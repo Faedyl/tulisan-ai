@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1024" />
+  <title>Pendeteksian Tulisan Tangan — MNIST</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300..900;1,8..60,300..900&family=JetBrains+Mono:wght@300..600&display=swap" rel="stylesheet" />
+
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.0/dist/ort.min.js"></script>
+
+  <style>
+    :root {
+      --paper:    #F4EFE3;
+      --paper-2:  #E8E1CF;
+      --ink:      #1A1612;
+      --ink-mute: #7A6F5E;
+      --rule:     #BFB5A1;
+      --accent:   #9B2D1F;
+      --serif:    'Source Serif 4', 'Iowan Old Style', Georgia, serif;
+      --mono:     'JetBrains Mono', 'IBM Plex Mono', Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+
+    body {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--serif);
+      font-size: 16px;
+      line-height: 1.55;
+      font-feature-settings: "kern", "liga", "onum";
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+
+    .page {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 64px 64px 96px;
+    }
+
+    /* ─── Header ─── */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 48px;
+      margin-bottom: 28px;
+    }
+    .title-block .eyebrow {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-mute);
+      margin: 0 0 12px;
+    }
+    .title-block h1 {
+      font-family: var(--serif);
+      font-weight: 600;
+      font-size: 36px;
+      letter-spacing: -0.012em;
+      margin: 0 0 6px;
+      line-height: 1.1;
+    }
+    .title-block .subtitle {
+      font-style: italic;
+      color: var(--ink-mute);
+      font-size: 16px;
+      margin: 0;
+      max-width: 48ch;
+    }
+    .meta-block {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink-mute);
+      text-align: right;
+      line-height: 1.85;
+      white-space: nowrap;
+    }
+    .meta-block span { color: var(--ink); }
+
+    .rule { border: 0; border-top: 1px solid var(--ink); margin: 24px 0 0; }
+    .rule.thin { border-top: 0.5px solid var(--rule); margin: 40px 0; }
+
+    /* ─── Figures: canvas + posterior ─── */
+    .figures {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 64px;
+      align-items: start;
+      margin: 48px 0 0;
+    }
+    .figure-label {
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 13.5px;
+      color: var(--ink-mute);
+      margin: 0 0 14px;
+      letter-spacing: 0.005em;
+    }
+    .figure-label strong {
+      font-style: normal;
+      font-weight: 600;
+      color: var(--ink);
+      margin-right: 4px;
+    }
+
+    .canvas-wrap { width: 280px; }
+    canvas {
+      display: block;
+      width: 280px;
+      height: 280px;
+      background: #FCFAF3;
+      border: 1px solid var(--ink);
+      cursor: crosshair;
+      touch-action: none;
+    }
+    .canvas-controls {
+      margin-top: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 0.06em;
+      color: var(--ink-mute);
+    }
+    .canvas-controls button {
+      background: none;
+      border: 0;
+      border-bottom: 1px solid var(--ink-mute);
+      color: var(--ink);
+      font: inherit;
+      letter-spacing: inherit;
+      cursor: pointer;
+      padding: 0 0 1px;
+      text-transform: lowercase;
+      transition: color 120ms ease, border-color 120ms ease;
+    }
+    .canvas-controls button:hover {
+      border-bottom-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Posterior */
+    .posterior table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono);
+      font-size: 12.5px;
+    }
+    .posterior td {
+      padding: 7px 0;
+      vertical-align: middle;
+      border-bottom: 0.5px solid var(--rule);
+    }
+    .posterior td:nth-child(1) {
+      width: 22px;
+      color: var(--ink);
+      font-weight: 500;
+    }
+    .posterior td:nth-child(2) {
+      padding: 7px 14px;
+    }
+    .posterior td:nth-child(3) {
+      text-align: right;
+      color: var(--ink-mute);
+      font-variant-numeric: tabular-nums;
+      width: 76px;
+      letter-spacing: 0.02em;
+    }
+    .posterior tr.argmax td:nth-child(1),
+    .posterior tr.argmax td:nth-child(3) {
+      color: var(--accent);
+    }
+
+    .bar-bg {
+      display: block;
+      height: 6px;
+      background: var(--paper-2);
+      position: relative;
+    }
+    .bar-fill {
+      display: block;
+      height: 100%;
+      background: var(--ink);
+      width: 0%;
+      transition: width 240ms cubic-bezier(0.2, 0.6, 0.2, 1),
+                  background-color 240ms ease;
+    }
+    .argmax .bar-fill { background: var(--accent); }
+
+    .posterior-foot {
+      margin-top: 18px;
+      padding-top: 12px;
+      border-top: 0.5px solid var(--rule);
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: var(--ink-mute);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      display: flex;
+      justify-content: space-between;
+    }
+    .posterior-foot span.value { color: var(--ink); }
+
+    /* ─── Tab 1: Model summary ─── */
+    .table-block { margin-top: 56px; }
+    .summary {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--serif);
+    }
+    .summary td {
+      padding: 10px 0;
+      border-bottom: 0.5px solid var(--rule);
+      font-size: 14px;
+      vertical-align: top;
+    }
+    .summary tr:last-child td { border-bottom: 0; }
+    .summary td:first-child {
+      font-style: italic;
+      color: var(--ink-mute);
+      width: 220px;
+      padding-right: 16px;
+    }
+    .summary td:last-child {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      letter-spacing: 0.005em;
+      color: var(--ink);
+    }
+    .summary .accuracy {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    /* ─── Notes / references ─── */
+    .notes-block { margin-top: 56px; }
+    .notes-block h2 {
+      font-family: var(--serif);
+      font-style: italic;
+      font-weight: 400;
+      font-size: 15px;
+      color: var(--ink-mute);
+      margin: 0 0 14px;
+      letter-spacing: 0.005em;
+    }
+    .notes-block p {
+      font-size: 14.5px;
+      line-height: 1.7;
+      max-width: 64ch;
+      margin: 0 0 14px;
+    }
+    .notes-block .accent { color: var(--accent); font-style: italic; }
+
+    .references {
+      margin-top: 36px;
+      font-size: 12.5px;
+      line-height: 1.65;
+      color: var(--ink-mute);
+      max-width: 70ch;
+    }
+    .references p {
+      padding-left: 32px;
+      text-indent: -32px;
+      margin: 0 0 8px;
+    }
+    .references strong {
+      font-style: normal;
+      color: var(--ink);
+      font-weight: 600;
+      margin-right: 6px;
+    }
+
+    footer {
+      margin-top: 72px;
+      padding-top: 18px;
+      border-top: 0.5px solid var(--rule);
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-mute);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .em-dash { color: var(--ink-mute); }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <div class="title-block">
+        <p class="eyebrow">KULIAH · Deep Learning · Tugas 01</p>
+        <h1>Pendeteksian Tulisan Tangan</h1>
+        <p class="subtitle">A convolutional neural network trained on MNIST for handwritten digit classification, served as a fully in-browser inference demo.</p>
+      </div>
+      <div class="meta-block">
+        <div>Apr <span>2026</span></div>
+        <div>Dataset · <span>MNIST</span></div>
+        <div>Runtime · <span>WebAssembly</span></div>
+      </div>
+    </header>
+
+    <hr class="rule" />
+
+    <section class="figures">
+      <div class="canvas-wrap">
+        <p class="figure-label"><strong>Fig 1.</strong> Input canvas, 280 × 280 px. Strokes are bounding-box cropped, scaled, and centred to a 28 × 28 frame at inference.</p>
+        <canvas id="pad" width="280" height="280"></canvas>
+        <div class="canvas-controls">
+          <span>brush · 14 px</span>
+          <button id="clear">clear</button>
+        </div>
+      </div>
+
+      <div class="posterior">
+        <p class="figure-label"><strong>Fig 2.</strong> Posterior probability over the ten digit classes. The argmax is rendered in <span style="color: var(--accent); font-style: italic;">vermilion</span>.</p>
+        <table>
+          <tbody id="probs"></tbody>
+        </table>
+        <div class="posterior-foot">
+          <span>argmax · <span id="argmax-readout" class="value em-dash">—</span></span>
+          <span>latency · <span id="latency" class="value em-dash">loading…</span></span>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule thin" />
+
+    <section class="table-block">
+      <p class="figure-label"><strong>Tab 1.</strong> Model summary.</p>
+      <table class="summary">
+        <tr><td>Architecture</td><td>3 convolutional blocks · 32 → 64 → 128 channels · BatchNorm + Dropout (0.25) · adaptive global average pooling · linear head</td></tr>
+        <tr><td>Trainable parameters</td><td>119,498</td></tr>
+        <tr><td>Optimiser</td><td>AdamW · lr 1 × 10⁻³ · weight decay 1 × 10⁻⁴</td></tr>
+        <tr><td>Schedule</td><td>OneCycleLR · 15 epochs · label smoothing 0.05</td></tr>
+        <tr><td>Augmentation</td><td>RandomAffine ±10° · translate ±10 %</td></tr>
+        <tr><td>Test accuracy</td><td><span class="accuracy">99.46 %</span> on the MNIST test split (10,000 images)</td></tr>
+        <tr><td>Inference runtime</td><td>onnxruntime-web · WebAssembly · client-side</td></tr>
+      </table>
+    </section>
+
+    <section class="notes-block">
+      <h2>Notes</h2>
+      <p>
+        The network was trained on the MNIST corpus of 60,000 handwritten digit images
+        introduced by LeCun et al. (1998). At inference, user-drawn strokes are cropped
+        to their tight bounding box, scaled so the longest side spans 20 pixels, and
+        re-centred within a 28 × 28 frame — matching the preprocessing convention of
+        the original training set so the input distribution at test time is consistent
+        with the distribution seen during training.
+      </p>
+      <p>
+        The trained weights are exported to ONNX and loaded into the browser via
+        <em>onnxruntime-web</em>; the forward pass runs entirely on the client through
+        WebAssembly. No image data leaves the device. Reported latency measures the
+        forward pass only — typical values fall between 1 ms and 10 ms in modern
+        browsers.
+      </p>
+
+      <div class="references">
+        <p><strong>[1]</strong> LeCun, Y., Bottou, L., Bengio, Y., &amp; Haffner, P. (1998). Gradient-based learning applied to document recognition. <em>Proceedings of the IEEE, 86</em>(11), 2278–2324.</p>
+        <p><strong>[2]</strong> Loshchilov, I., &amp; Hutter, F. (2019). Decoupled weight decay regularization. <em>International Conference on Learning Representations</em>.</p>
+        <p><strong>[3]</strong> Smith, L. N., &amp; Topin, N. (2018). Super-convergence: very fast training of neural networks using large learning rates. <em>arXiv:1708.07120</em>.</p>
+      </div>
+    </section>
+
+    <footer>
+      <span>Pendeteksian Tulisan Tangan</span>
+      <span>MNIST · CNN · Apr 2026</span>
+    </footer>
+  </main>
+
+  <script>
+    // ─── Canvas drawing ─────────────────────────────────────────
+    const canvas = document.getElementById('pad');
+    const ctx = canvas.getContext('2d');
+    ctx.lineWidth = 14;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#1A1612';
+
+    let drawing = false;
+    let last = null;
+
+    function getPos(evt) {
+      const rect = canvas.getBoundingClientRect();
+      const src = evt.touches ? evt.touches[0] : evt;
+      return {
+        x: (src.clientX - rect.left) * (canvas.width / rect.width),
+        y: (src.clientY - rect.top) * (canvas.height / rect.height),
+      };
+    }
+    function start(e) { drawing = true; last = getPos(e); e.preventDefault(); }
+    function move(e) {
+      if (!drawing) return;
+      const p = getPos(e);
+      ctx.beginPath();
+      ctx.moveTo(last.x, last.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      last = p;
+      e.preventDefault();
+    }
+    function end() {
+      if (!drawing) return;
+      drawing = false;
+      last = null;
+      schedulePredict();
+    }
+
+    canvas.addEventListener('mousedown', start);
+    canvas.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', end);
+    canvas.addEventListener('touchstart', start, { passive: false });
+    canvas.addEventListener('touchmove', move, { passive: false });
+    canvas.addEventListener('touchend', end);
+
+    document.getElementById('clear').addEventListener('click', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      renderEmpty();
+    });
+
+    // ─── Posterior rows ─────────────────────────────────────────
+    const tbody = document.getElementById('probs');
+    for (let i = 0; i < 10; i++) {
+      const tr = document.createElement('tr');
+      tr.dataset.label = i;
+      tr.innerHTML = `
+        <td>${i}</td>
+        <td><span class="bar-bg"><span class="bar-fill"></span></span></td>
+        <td class="em-dash">—</td>`;
+      tbody.appendChild(tr);
+    }
+    const rows = Array.from(tbody.children);
+    const argmaxReadout = document.getElementById('argmax-readout');
+    const latencyEl = document.getElementById('latency');
+
+    function renderEmpty() {
+      rows.forEach(r => {
+        r.classList.remove('argmax');
+        r.querySelector('.bar-fill').style.width = '0%';
+        r.children[2].textContent = '—';
+        r.children[2].classList.add('em-dash');
+      });
+      argmaxReadout.textContent = '—';
+      argmaxReadout.classList.add('em-dash');
+      latencyEl.textContent = '— ms';
+      latencyEl.classList.add('em-dash');
+    }
+
+    function renderPredictions(ranked, latencyMs) {
+      const top = ranked[0];
+      rows.forEach(r => r.classList.remove('argmax'));
+      rows[top.label].classList.add('argmax');
+
+      ranked.forEach(({ label, prob }) => {
+        const row = rows[label];
+        row.querySelector('.bar-fill').style.width = (prob * 100).toFixed(2) + '%';
+        const cell = row.children[2];
+        cell.textContent = (prob * 100).toFixed(2) + ' %';
+        cell.classList.remove('em-dash');
+      });
+      argmaxReadout.textContent = String(top.label);
+      argmaxReadout.classList.remove('em-dash');
+      latencyEl.textContent = latencyMs.toFixed(2) + ' ms';
+      latencyEl.classList.remove('em-dash');
+    }
+
+    // ─── ONNX Runtime ───────────────────────────────────────────
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.0/dist/';
+
+    let session = null;
+    let pendingPredict = false;
+
+    (async () => {
+      try {
+        session = await ort.InferenceSession.create('./mnist.onnx', {
+          executionProviders: ['wasm'],
+          graphOptimizationLevel: 'all',
+        });
+        latencyEl.textContent = '— ms';
+        if (pendingPredict) { pendingPredict = false; predict(); }
+      } catch (err) {
+        console.error('Failed to load ONNX model:', err);
+        latencyEl.textContent = 'load failed';
+      }
+    })();
+
+    // ─── MNIST preprocessing (pure JS) ──────────────────────────
+    function preprocessForMnist() {
+      const W = canvas.width, H = canvas.height;
+      const imageData = ctx.getImageData(0, 0, W, H);
+      const data = imageData.data;
+
+      // Use the alpha channel as the ink mask: transparent bg, opaque strokes.
+      let minX = W, minY = H, maxX = -1, maxY = -1;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          if (data[(y * W + x) * 4 + 3] > 30) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (maxX < 0) return null;
+
+      const bw = maxX - minX + 1;
+      const bh = maxY - minY + 1;
+
+      const crop = document.createElement('canvas');
+      crop.width = bw;
+      crop.height = bh;
+      const cctx = crop.getContext('2d');
+      const cropImg = cctx.createImageData(bw, bh);
+      for (let y = 0; y < bh; y++) {
+        for (let x = 0; x < bw; x++) {
+          const a = data[((minY + y) * W + (minX + x)) * 4 + 3];
+          const idx = (y * bw + x) * 4;
+          cropImg.data[idx] = a;
+          cropImg.data[idx + 1] = a;
+          cropImg.data[idx + 2] = a;
+          cropImg.data[idx + 3] = 255;
+        }
+      }
+      cctx.putImageData(cropImg, 0, 0);
+
+      const scale = 20.0 / Math.max(bw, bh);
+      const newW = Math.max(1, Math.round(bw * scale));
+      const newH = Math.max(1, Math.round(bh * scale));
+
+      const final28 = document.createElement('canvas');
+      final28.width = 28;
+      final28.height = 28;
+      const fctx = final28.getContext('2d');
+      fctx.fillStyle = 'black';
+      fctx.fillRect(0, 0, 28, 28);
+      fctx.imageSmoothingEnabled = true;
+      fctx.imageSmoothingQuality = 'high';
+      fctx.drawImage(
+        crop, 0, 0, bw, bh,
+        Math.floor((28 - newW) / 2), Math.floor((28 - newH) / 2), newW, newH
+      );
+
+      const finalData = fctx.getImageData(0, 0, 28, 28).data;
+      const input = new Float32Array(28 * 28);
+      const mean = 0.1307, std = 0.3081;
+      for (let i = 0; i < 28 * 28; i++) {
+        const v = finalData[i * 4] / 255.0;
+        input[i] = (v - mean) / std;
+      }
+      return input;
+    }
+
+    // ─── Inference (debounced) ──────────────────────────────────
+    let timer = null;
+    function schedulePredict() {
+      clearTimeout(timer);
+      timer = setTimeout(predict, 80);
+    }
+
+    async function predict() {
+      if (!session) { pendingPredict = true; return; }
+      const input = preprocessForMnist();
+      if (!input) { renderEmpty(); return; }
+
+      const tensor = new ort.Tensor('float32', input, [1, 1, 28, 28]);
+      const t0 = performance.now();
+      const results = await session.run({ input: tensor });
+      const elapsed = performance.now() - t0;
+
+      const logits = Array.from(results.logits.data);
+      const max = Math.max(...logits);
+      const exps = logits.map(x => Math.exp(x - max));
+      const sum = exps.reduce((a, b) => a + b, 0);
+      const probs = exps.map(x => x / sum);
+
+      const ranked = probs
+        .map((p, i) => ({ label: i, prob: p }))
+        .sort((a, b) => b.prob - a.prob);
+
+      renderPredictions(ranked, elapsed);
+    }
+
+    renderEmpty();
+    latencyEl.textContent = 'loading…';
+  </script>
+</body>
+</html>

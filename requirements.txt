@@ -1,0 +1,11 @@
+torch>=2.2
+torchvision>=0.17
+numpy
+matplotlib
+seaborn
+scikit-learn
+tqdm
+pillow
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.5
