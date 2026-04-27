@@ -1,0 +1,9 @@
+src/
+scripts/
+checkpoints/
+data/
+outputs/
+.venv/
+requirements.txt
+*.pt
+__pycache__/
