@@ -488,6 +488,9 @@
         session = await ort.InferenceSession.create('./mnist.onnx', {
           executionProviders: ['wasm'],
           graphOptimizationLevel: 'all',
+          externalData: [
+            { data: './mnist.onnx.data', path: 'mnist.onnx.data' },
+          ],
         });
         latencyEl.textContent = '— ms';
         if (pendingPredict) { pendingPredict = false; predict(); }
